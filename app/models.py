@@ -18,38 +18,40 @@ STATUS = [
 ]
 STATUS_PAY = [
     ('pending','PENDING'),
+    ('paid','PAID'),
     ('failed','FAILED'),
     ('refunded','REFUNDED')
 ]
 
 class User(AbstractUser):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4(),editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4,editable=False)
     full_name=models.CharField(max_length=120)
     phone = models.CharField(max_length=10,blank=True, null=True)
 
     def __str__(self):
         return self.username
 class Vehicle(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4(),editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4,editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="vehicles")
-    plateNumber=models.CharField(max_length=15)
+    plate_number=models.CharField(max_length=15,db_index=True,default="")
 
     def __str__(self):
-        return self.plateNumber
+        return self.plate_number
 
 class QRCode(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4(),editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4,editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE,related_name="qr")
-    value = models.CharField(max_length=128,unique=True)
-    status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES, default="ACTIVE")
+    value = models.CharField(max_length=128,unique=True,db_index=True)
+    status = models.CharField(max_length=20,choices=STATUS_CHOICES, default="active")
     issued_at = models.DateTimeField(auto_now_add=True)
     expired_at = models.DateTimeField(null=True, blank=True)
+    last_plate = models.CharField(max_length=20, blank=True, null=True, db_index=True)
 
     def __str__(self):
         return f"{self.user.username} - {self.value}"
 
 class Gate(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4(),editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4,editable=False)
     name = models.CharField(max_length=50)
     type = models.CharField(max_length=15,choices=TYPES)
     location = models.CharField(max_length=120, blank=True)
@@ -68,15 +70,15 @@ class Tariff(models.Model):
 
 class ParkingSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(User, on_delete=models.PROTECT,related_name="session")
-    vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT,related_name="session")
+    user = models.ForeignKey(User, on_delete=models.PROTECT,related_name="sessions")
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT,related_name="sessions")
     entry_gate = models.ForeignKey(Gate, on_delete=models.PROTECT, related_name="entries")
     exit_gate = models.ForeignKey(Gate, on_delete=models.PROTECT, related_name="exits", null=True, blank=True)
     entry_time = models.DateTimeField(auto_now_add=True)
     exit_time = models.DateTimeField(null=True, blank=True)
     entry_plate = models.CharField(max_length=20, null=True, blank=True)
     exit_plate = models.CharField(max_length=20, null=True, blank=True)
-    status = models.CharField(max_length=10, choices=STATUS, default="OPEN")
+    status = models.CharField(max_length=10,db_index=True, choices=STATUS, default="open")
     amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     tariff = models.ForeignKey(Tariff, on_delete=models.PROTECT)
 
@@ -90,7 +92,7 @@ class Payment(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=8, default="VND")
     paid_at = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=15,choices=STATUS_PAY, default="PENDING")
+    status = models.CharField(max_length=15,choices=STATUS_PAY, default="pending")
     tx_ref = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
