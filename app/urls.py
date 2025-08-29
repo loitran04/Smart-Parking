@@ -1,6 +1,7 @@
 # app/urls.py
 from django.urls import path, include
-from .views import RegisterView, LoginView, LogoutView, register_parking, entry, exit, GateViewSet
+from .views import (RegisterView, LoginView, LogoutView, register_parking,
+                    entry, exit, GateViewSet, MeView, change_info, change_password)
 from rest_framework.routers import DefaultRouter
 
 # Tạo router cho GateViewSet
@@ -12,6 +13,9 @@ urlpatterns = [
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("auth/login/", LoginView.as_view(), name="login"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
+    path('auth/me/', MeView.as_view()),
+    path('auth/changeInfo/', change_info, name="change_info"),
+    path('auth/changePassword/', change_password, name="change_password"),
 
     # Các API gửi xe và rời bến
     path("parking/register/", register_parking, name="register_parking"),

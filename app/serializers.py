@@ -6,7 +6,7 @@ from rest_framework import serializers
 
 from .models import (
     User, Vehicle, QRCode, Gate, Tariff,
-    ParkingSession, Payment, PlateReading
+    ParkingSession, Payment, PlateReading, Reservation
 )
 
 # ==== Helpers ====
@@ -18,6 +18,15 @@ def normalize_plate(s: str | None) -> str | None:
     s = s.strip().upper().replace(" ", "")
     return s
 
+def estimate_fee(rule: dict, duration_min: int, vehicle_type: str) -> int:
+    """Ước tính phí theo pricing_rule."""
+    free = int(rule.get('free_first_min', 0))
+    block = int(rule.get('block_minutes', 60))
+    per_by_type = rule.get('per_block_by_type') or {}
+    per = int(per_by_type.get(vehicle_type, rule.get('per_block', 10000)))
+    payable = max(0, duration_min - free)
+    blocks = (payable + block - 1) // block
+    return blocks * per
 
 # ==== Serializers ====
 
@@ -48,7 +57,7 @@ class VehicleSerializer(serializers.ModelSerializer):
         return v
 
     def validate(self, attrs):
-        # plate phải thuộc về owner (unique trong phạm vi owner nếu bạn muốn)
+        # plate unique theo owner
         owner = attrs.get("owner") or getattr(self.instance, "owner", None)
         plate = attrs.get("plate_number") or getattr(self.instance, "plate_number", None)
         if owner and plate:
@@ -69,8 +78,8 @@ class VehicleSerializer(serializers.ModelSerializer):
 class QRCodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = QRCode
-        fields = ["id", "user", "value", "status", "issued_at", "expired_at"]
-        read_only_fields = ["id", "issued_at"]
+        fields = ["id", "user", "reservation", "value", "status", "issued_at", "expired_at", "last_plate"]
+        read_only_fields = ["id", "issued_at", "last_plate"]
 
     def validate_value(self, v):
         if len(v) < 6:
@@ -108,17 +117,49 @@ class TariffSerializer(serializers.ModelSerializer):
 
     def validate_pricing_rule(self, rule):
         # ví dụ: {"free_first_min":15,"block_minutes":60,"per_block":10000}
-        required = ["block_minutes", "per_block"]
+        required = ["block_minutes"]
         for k in required:
             if k not in rule:
                 raise serializers.ValidationError(f"pricing_rule thiếu khóa bắt buộc: {k}")
             if not isinstance(rule[k], int) or rule[k] < 0:
                 raise serializers.ValidationError(f"pricing_rule.{k} phải là số nguyên không âm.")
+        # per_block hoặc per_block_by_type tối thiểu phải có một
+        if "per_block" not in rule and "per_block_by_type" not in rule:
+            raise serializers.ValidationError("pricing_rule cần 'per_block' hoặc 'per_block_by_type'.")
+        if "per_block" in rule and (not isinstance(rule["per_block"], int) or rule["per_block"] < 0):
+            raise serializers.ValidationError("pricing_rule.per_block phải là số nguyên không âm.")
+        if "per_block_by_type" in rule and not isinstance(rule["per_block_by_type"], dict):
+            raise serializers.ValidationError("pricing_rule.per_block_by_type phải là object.")
         if "free_first_min" in rule:
             if not isinstance(rule["free_first_min"], int) or rule["free_first_min"] < 0:
                 raise serializers.ValidationError("pricing_rule.free_first_min phải là số nguyên không âm.")
         return rule
 
+class ReservationSerializer(serializers.ModelSerializer):
+    # tiện hiển thị QR hiện tại (nếu có)
+    qr_value = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Reservation
+        fields = [
+            "id", "user", "vehicle_type", "start_time", "end_time",
+            "estimated_fee", "status", "created_at", "qr", "qr_value"
+        ]
+        read_only_fields = ["id", "user", "estimated_fee", "status", "created_at", "qr", "qr_value"]
+
+    def get_qr_value(self, obj):
+        qr = getattr(obj, "qr", None)
+        return getattr(qr, "value", None) if qr else None
+
+    def validate(self, attrs):
+        start = attrs.get("start_time") or getattr(self.instance, "start_time", None)
+        end = attrs.get("end_time") or getattr(self.instance, "end_time", None)
+        if start and end and end <= start:
+            raise serializers.ValidationError("end_time phải sau start_time.")
+        # chỉ enforce ở tạo mới
+        if self.instance is None and start and start <= timezone.now():
+            raise serializers.ValidationError("start_time phải ở tương lai.")
+        return attrs
 
 class ParkingSessionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -127,9 +168,10 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
             "id", "user", "vehicle", "entry_gate", "exit_gate",
             "entry_time", "exit_time",
             "entry_plate", "exit_plate",
-            "status", "amount", "tariff"
+            "status", "amount", "tariff",
+            "qrcode", "reservation",
         ]
-        read_only_fields = ["id", "entry_time"]
+        read_only_fields = ["id", "entry_time", "qrcode", "reservation"]
 
     def to_internal_value(self, data):
         for k in ("entry_plate", "exit_plate"):
@@ -173,7 +215,6 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
             if v and not PLATE_RE.fullmatch(v):
                 raise serializers.ValidationError(f"{key} không hợp lệ (5-12 ký tự [A-Z0-9-]).")
         return attrs
-
 
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
