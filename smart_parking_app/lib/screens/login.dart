@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:smart_parking_app/services/api.dart';
 import 'package:smart_parking_app/models/login_response.dart';
+import 'package:go_router/go_router.dart';
+
+import 'register.dart';
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -27,10 +31,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
     if (res != null) {
+      await ApiService.me();
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng nhập thành công!')),
       );
-      Navigator.pushReplacementNamed(context, '/home');
+      if (!mounted) return;
+        context.goNamed('home');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sai tài khoản hoặc mật khẩu')),
@@ -250,7 +257,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         const Text("New User? "),
                         GestureDetector(
-                          onTap: () => Navigator.pushNamed(context, '/register'),
+                          onTap: () => context.go('/register'),
                           child: Text(
                             'Sign Up',
                             style: TextStyle(

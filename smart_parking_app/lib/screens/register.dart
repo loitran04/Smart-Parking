@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../services/api.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -51,7 +52,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng ký thành công! Hãy đăng nhập.')),
       );
-      Navigator.pop(context); // quay về màn hình đăng nhập
+      context.goNamed('home');  // → vào Home
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng ký thất bại, vui lòng thử lại.')),
@@ -273,7 +274,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       children: [
                         const Text("Đã có tài khoản? "),
                         GestureDetector(
-                          onTap: () => Navigator.pop(context),
+                          onTap: () => context.goNamed('login'),
                           child: Text(
                             'Đăng nhập',
                             style: TextStyle(

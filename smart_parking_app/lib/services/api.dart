@@ -32,6 +32,14 @@ class ApiService {
       await prefs.setString('auth_token', loginRes.token);
       await prefs.setString('user_id', loginRes.userId);
 
+      // ⬇️ LƯU LUÔN user nếu backend trả về
+    if (data['user'] != null) {
+      await prefs.setString('user_json', jsonEncode(data['user']));
+    } else {
+      // fallback: gọi /auth/me để lấy và cache
+      await me();
+    }
+    
       return loginRes;
     } else {
       return null;
