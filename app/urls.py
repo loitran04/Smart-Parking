@@ -1,7 +1,8 @@
 # app/urls.py
 from django.urls import path, include
 from .views import (RegisterView, LoginView, LogoutView, register_parking,
-                    entry, exit, GateViewSet, MeView, change_info, change_password)
+                    entry, exit, GateViewSet, MeView,
+                    change_info, change_password, my_reservations, reservation_detail)
 from rest_framework.routers import DefaultRouter
 
 # Tạo router cho GateViewSet
@@ -21,6 +22,9 @@ urlpatterns = [
     path("parking/register/", register_parking, name="register_parking"),
     path("parking/entry/", entry, name="entry"),
     path("parking/exit/", exit, name="exit"),
+
+    path("parking/reservations/", my_reservations),
+    path("parking/reservations/<uuid:pk>/", reservation_detail),
 
     # Các viewset CRUD của Gate
     path("", include(router.urls)),

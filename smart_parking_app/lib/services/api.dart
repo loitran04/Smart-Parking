@@ -5,13 +5,13 @@ import '../models/login_response.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
 import '../models/user_model.dart';
+import '../models/reservation_model.dart';
 
 String get baseUrl {
   // if (kIsWeb) return 'http://localhost:8000';
   if (Platform.isAndroid) return 'http://10.0.2.2:8000'; // Android emulator
   return 'http://127.0.0.1:8000'; // iOS Simulator / desktop
 }
-  
 
 class ApiService {
   //login
@@ -33,18 +33,19 @@ class ApiService {
       await prefs.setString('user_id', loginRes.userId);
 
       // ⬇️ LƯU LUÔN user nếu backend trả về
-    if (data['user'] != null) {
-      await prefs.setString('user_json', jsonEncode(data['user']));
-    } else {
-      // fallback: gọi /auth/me để lấy và cache
-      await me();
-    }
-    
+      if (data['user'] != null) {
+        await prefs.setString('user_json', jsonEncode(data['user']));
+      } else {
+        // fallback: gọi /auth/me để lấy và cache
+        await me();
+      }
+
       return loginRes;
     } else {
       return null;
     }
   }
+
   //register
   static Future<bool> registerUser({
     required String username,
@@ -71,8 +72,6 @@ class ApiService {
     return response.statusCode == 200 || response.statusCode == 201;
   }
 
-
-
   static Future<Map<String, dynamic>?> getQr() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("auth_token"); // <-- sửa key
@@ -80,7 +79,10 @@ class ApiService {
     if (token == null) return null;
 
     final url = Uri.parse("$baseUrl/parking/register/");
-    final res = await http.post(url, headers: {"Authorization": "Token $token"});
+    final res = await http.post(
+      url,
+      headers: {"Authorization": "Token $token"},
+    );
 
     // API trả 201 theo BE; chấp nhận mọi 2xx
     if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -93,37 +95,34 @@ class ApiService {
     }
     return null;
   }
-  
 
   static Future<UserModel?> me() async {
-  final prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString('auth_token');
-  if (token == null) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    if (token == null) return null;
 
-  final url = Uri.parse("${baseUrl}/auth/me/");
-  final response = await http.get(
-    url,
-    headers: {
-      'Authorization': 'Token $token',
-      'Accept': 'application/json',
-    },
-  );
+    final url = Uri.parse("${baseUrl}/auth/me/");
+    final response = await http.get(
+      url,
+      headers: {'Authorization': 'Token $token', 'Accept': 'application/json'},
+    );
 
-  if (response.statusCode == 200) {
-    final data = json.decode(response.body) as Map<String, dynamic>;
-    final user = UserModel.fromJson(data);
-    await prefs.setString('user_json', jsonEncode(user.toJson()));
-    return user;
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final user = UserModel.fromJson(data);
+      await prefs.setString('user_json', jsonEncode(user.toJson()));
+      return user;
+    }
+
+    // Token hết hạn → dọn cache (tùy chọn)
+    if (response.statusCode == 401) {
+      await prefs.remove('auth_token');
+      await prefs.remove('user_json');
+    }
+    return null;
   }
 
-  // Token hết hạn → dọn cache (tùy chọn)
-  if (response.statusCode == 401) {
-    await prefs.remove('auth_token');
-    await prefs.remove('user_json');
-  }
-  return null;
-}
-/// Lấy user từ cache (nếu có)
+  /// Lấy user từ cache (nếu có)
   static Future<UserModel?> getCachedUser() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('user_json');
@@ -131,7 +130,7 @@ class ApiService {
     return UserModel.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
-/// Cập nhật thông tin hồ sơ (PATCH /auth/changeInfo/)
+  /// Cập nhật thông tin hồ sơ (PATCH /auth/changeInfo/)
   static Future<UserModel?> changeInfo({
     String? fullName,
     String? email,
@@ -197,4 +196,61 @@ class ApiService {
     await prefs.remove('user_json');
   }
 
+  static Future<ReservationModel?> createReservation({
+    required String vehicleType, // 'car' | 'motorbike'
+    required DateTime startTime, // thời điểm vào
+    required int durationMinutes, // tổng phút đỗ
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    if (token == null) return null;
+
+    final url = Uri.parse("$baseUrl/parking/register/");
+    final res = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Token $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'vehicle_type': vehicleType,
+        'start_time': startTime.toUtc().toIso8601String(),
+        'duration_minutes': durationMinutes,
+      }),
+    );
+
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return ReservationModel.fromJson(jsonDecode(res.body));
+    }
+    return null;
+  }
+
+  static Future<List<ReservationModel>> myReservations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    if (token == null) return [];
+    final url = Uri.parse("$baseUrl/parking/reservations/");
+    final res = await http.get(url, headers: {'Authorization': 'Token $token'});
+    if (res.statusCode == 200) {
+      final List list = jsonDecode(res.body) as List;
+      return list
+          .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  static Future<ReservationModel?> reservationDetail(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    if (token == null) return null;
+    final url = Uri.parse("$baseUrl/parking/reservations/$id/");
+    final res = await http.get(url, headers: {'Authorization': 'Token $token'});
+    if (res.statusCode == 200) {
+      return ReservationModel.fromJson(
+        jsonDecode(res.body) as Map<String, dynamic>,
+      );
+    }
+    return null;
+  }
 }

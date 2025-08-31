@@ -106,87 +106,100 @@ class GateViewSet(viewsets.ModelViewSet):
 
 # ========= Parking Flow =========
 @api_view(["POST"])
-@permission_classes([permissions.IsAuthenticated])
+@permission_classes([IsAuthenticated])
 def register_parking(request):
     """
-    Cấp QR RỖNG nhanh cho user (không qua đặt chỗ).
-    TTL mặc định 24h (bạn có thể đổi).
-    """
-    user = request.user
-    now = timezone.now()
-    ttl = now + timedelta(hours=24)
+    Đổi chức năng: ĐĂNG KÝ HÓA ĐƠN (Reservation) + CẤP QR RỖNG gắn kèm.
 
-    qr = QRCode.objects.create(
-        user=user,
-        value=_gen_qr_value(),
-        status="active",
-        expired_at=ttl
-    )
-    return Response(QRCodeSerializer(qr).data, status=201)
+    Body (JSON):
+    {
+      "vehicle_type": "car" | "motorbike",
+      "start_time": "2025-09-03T13:45:00+07:00",   // ISO8601
+      "duration_minutes": 120                      // mặc định 120'
+    }
 
-@api_view(["POST"])
-@permission_classes([permissions.IsAuthenticated])
-def create_reservation(request):
-    """
-    Body: { "vehicle_type": "car"|"motorbike", "start_time": ISO, "duration_minutes": int }
-    Trả: Reservation + qr_value (kèm ước tính phí).
-    Giới hạn: tối đa 5 đặt/ngày/người (không tính cancelled/expired/completed).
+    Trả về (201):
+    {
+      "id": "...",
+      "vehicle_type": "...",
+      "start_time": "...",
+      "end_time": "...",
+      "estimated_fee": 40000,
+      "currency": "VND",
+      "qr_value": "xxxx",
+      "status": "booked"
+    }
     """
     user = request.user
     vt = request.data.get("vehicle_type")
     start_raw = request.data.get("start_time")
-    duration = int(request.data.get("duration_minutes", 60))
+    duration = int(request.data.get("duration_minutes", 120))
 
-    if not vt or not start_raw:
-        return Response({"detail": "Thiếu vehicle_type hoặc start_time"}, status=400)
+    if vt not in ("car", "motorbike"):
+        return Response({"detail": "vehicle_type phải là 'car' hoặc 'motorbike'."}, status=400)
+    if not start_raw:
+        return Response({"detail": "Thiếu start_time (ISO8601)."}, status=400)
 
+    # parse start_time -> aware
     try:
-        # start_time ISO -> aware
         start = datetime.fromisoformat(start_raw)
         if timezone.is_naive(start):
             start = timezone.make_aware(start)
     except Exception:
-        return Response({"detail": "start_time không hợp lệ (ISO8601)"}, status=400)
+        return Response({"detail": "start_time không hợp lệ (ISO8601)."}, status=400)
 
     if start <= timezone.now():
-        return Response({"detail": "start_time phải ở tương lai"}, status=400)
+        return Response({"detail": "start_time phải ở tương lai."}, status=400)
 
     end = start + timedelta(minutes=duration)
 
-    # Giới hạn 5 đặt/ngày
+    # Giới hạn 5 đặt/ngày/người (bỏ qua cancelled/expired/completed)
     day = start.date()
     day_count = Reservation.objects.filter(
         user=user, start_time__date=day
-    ).exclude(status__in=['cancelled','expired','completed']).count()
+    ).exclude(status__in=['cancelled', 'expired', 'completed']).count()
     if day_count >= MAX_RES_PER_DAY:
-        return Response({"detail": "Vượt quá 5 đặt chỗ trong ngày"}, status=429)
+        return Response({"detail": "Vượt quá 5 đặt chỗ trong ngày."}, status=429)
 
+    # Lấy tariff
     tariff = Tariff.objects.first()
     if not tariff:
-        return Response({"detail": "Chưa cấu hình Tariff"}, status=400)
+        return Response({"detail": "Chưa cấu hình Tariff."}, status=400)
 
     est = _estimate_fee(tariff.pricing_rule or {}, duration, vt)
 
-    # Cấp QR gắn với reservation, TTL = end + NO_SHOW_GRACE_MIN
+    # Tạo QR rỗng, TTL = end + NO_SHOW_GRACE_MIN
     qr = QRCode.objects.create(
         user=user,
         value=_gen_qr_value(),
         status="active",
-        expired_at=end + timedelta(minutes=NO_SHOW_GRACE_MIN)
+        expired_at=end + timedelta(minutes=NO_SHOW_GRACE_MIN),
     )
+
+    # Tạo Reservation & liên kết 1-1 với QR
     res = Reservation.objects.create(
-        user=user, vehicle_type=vt, start_time=start, end_time=end,
-        estimated_fee=est, status='booked'
+        user=user,
+        vehicle_type=vt,
+        start_time=start,
+        end_time=end,
+        estimated_fee=est,
+        status='booked',
     )
-    # liên kết 1-1
     qr.reservation = res
     qr.save(update_fields=['reservation'])
 
-    data = ReservationSerializer(res).data
-    data["qr_value"] = qr.value
-    data["currency"] = tariff.currency
+    # Có thể dùng serializer rồi thêm trường; ở đây build tay cho sát FE
+    data = {
+        "id": str(res.id),
+        "vehicle_type": res.vehicle_type,
+        "start_time": res.start_time.isoformat(),
+        "end_time": res.end_time.isoformat(),
+        "estimated_fee": res.estimated_fee or 0,
+        "currency": tariff.currency,
+        "qr_value": qr.value,
+        "status": res.status,
+    }
     return Response(data, status=201)
-
 
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])  # camera/thiết bị
@@ -365,3 +378,18 @@ def exit(request):
     qr.save(update_fields=["status"])
 
     return Response({"session_id": str(sess.id), "amount": fee, "minutes": minutes}, status=200)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_reservations(request):
+    qs = Reservation.objects.filter(user=request.user).order_by('-start_time')
+    return Response(ReservationSerializer(qs, many=True).data)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def reservation_detail(request, pk):
+    try:
+        r = Reservation.objects.get(pk=pk, user=request.user)
+    except Reservation.DoesNotExist:
+        return Response({"detail":"Not found"}, status=404)
+    return Response(ReservationSerializer(r).data)
