@@ -1,6 +1,7 @@
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta
 import secrets
+from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -10,13 +11,16 @@ from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.db.models import Count, Sum
 
-from .models import Gate, QRCode, Vehicle, ParkingSession, Tariff, Reservation
+from .models import Gate, QRCode, Vehicle, ParkingSession, Tariff, Reservation, Payment, PlateReading
 from .serializers import (
     GateSerializer, QRCodeSerializer, VehicleSerializer,
     ParkingSessionSerializer, UserSerializer, ReservationSerializer
 )
+from .lpr import recognize_plate_from_bytes
+from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
 
 User = get_user_model()
@@ -39,7 +43,30 @@ def _estimate_fee(rule: dict, duration_min: int, vehicle_type: str) -> int:
     payable = max(0, duration_min - free)
     blocks = (payable + block - 1) // block
     return blocks * per
+def _resolve_gate(request, expected_type: str):
+    # Ưu tiên thứ tự: gate_id (UUID) -> gate_name -> gate_type (fallback)
+    gid = request.data.get("gate_id") or request.data.get("gate_uuid")
+    gname = request.data.get("gate_name") or request.data.get("gate")
+    gtype = (request.data.get("gate_type") or expected_type)
 
+    gate = None
+
+    # 1) Thử bằng UUID
+    if gid:
+        try:
+            gate = Gate.objects.get(pk=UUID(str(gid)))
+        except Exception:
+            gate = None
+
+    # 2) Thử bằng tên (không phân biệt hoa thường, bỏ khoảng trắng hai đầu)
+    if gate is None and gname:
+        gate = Gate.objects.filter(name__iexact=str(gname).strip()).first()
+
+    # 3) Fallback theo loại cổng
+    if gate is None:
+        gate = Gate.objects.filter(type=gtype).first()
+
+    return gate
 # ========= AUTH (Token) =========
 class RegisterSerializer(serializers.ModelSerializer):
     """Đăng ký tài khoản, trả luôn token."""
@@ -79,6 +106,7 @@ class LoginView(ObtainAuthToken):
         return Response({
             "token": token.key,
             "user_id": user.id,
+            "is_admin": user.is_staff, 
             "user": UserSerializer(user).data
         })
 
@@ -108,28 +136,7 @@ class GateViewSet(viewsets.ModelViewSet):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def register_parking(request):
-    """
-    Đổi chức năng: ĐĂNG KÝ HÓA ĐƠN (Reservation) + CẤP QR RỖNG gắn kèm.
 
-    Body (JSON):
-    {
-      "vehicle_type": "car" | "motorbike",
-      "start_time": "2025-09-03T13:45:00+07:00",   // ISO8601
-      "duration_minutes": 120                      // mặc định 120'
-    }
-
-    Trả về (201):
-    {
-      "id": "...",
-      "vehicle_type": "...",
-      "start_time": "...",
-      "end_time": "...",
-      "estimated_fee": 40000,
-      "currency": "VND",
-      "qr_value": "xxxx",
-      "status": "booked"
-    }
-    """
     user = request.user
     vt = request.data.get("vehicle_type")
     start_raw = request.data.get("start_time")
@@ -204,14 +211,20 @@ def register_parking(request):
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])  # camera/thiết bị
 def entry(request):
-    """
-    Body: { qr, gate_id, plate_text }
-    - Xác thực QR active + TTL.
-    - Nếu QR gắn reservation: kiểm tra khoảng thời gian hợp lệ (lead/grace).
-    - Khóa plate vào QR.last_plate.
-    - Chặn nhiều phiên OPEN cho cùng user.
-    - Tạo ParkingSession (link qrcode/reservation).
-    """
+
+    # === 1) Lấy biển số từ ảnh nếu có ===
+    plate_text = request.data.get("plate_text")
+    upload = request.FILES.get("image")
+    if upload and not plate_text:
+        image_bytes = upload.read()
+        lpr = recognize_plate_from_bytes(image_bytes)
+        if not lpr["ok"]:
+            return Response({"detail": "Không đọc được biển số từ ảnh"}, status=422)
+        if lpr["ocr_conf"] < 0.60:   # ngưỡng tuỳ ý
+            return Response({"detail": "Độ tin cậy thấp", "conf": lpr["ocr_conf"]}, status=422)
+        plate_text = lpr["text"]
+
+    # === 2) Giữ nguyên phần còn lại như bạn đã viết ===
     qr = QRCode.objects.filter(value=request.data.get("qr"), status="active") \
                        .select_related("user", "reservation").first()
     if not qr:
@@ -221,7 +234,6 @@ def entry(request):
     if qr.expired_at and qr.expired_at <= now:
         return Response({"detail": "QR đã hết hạn"}, status=410)
 
-    # Reservation timing (nếu có)
     res = qr.reservation
     if res:
         if now < res.start_time - timedelta(minutes=LEAD_MIN):
@@ -231,28 +243,32 @@ def entry(request):
             qr.status = 'expired'; qr.save(update_fields=['status'])
             return Response({"detail": "Đặt chỗ hết hiệu lực"}, status=410)
 
-    # Gate
-    try:
-        gate = Gate.objects.get(pk=request.data.get("gate_id"))
-        if gate.type != "entry":
-            return Response({"detail": "gate_id phải là ENTRY"}, status=400)
-    except Gate.DoesNotExist:
-        return Response({"detail": "gate_id không tồn tại"}, status=404)
+    gate_name = request.data.get("gate_name") or request.data.get("gate")  # hỗ trợ nhiều key
+    gate = None
 
-    # Chặn OPEN trùng
+    if gate_name:
+        gate = Gate.objects.filter(name__iexact=gate_name.strip()).first()
+
+    # fallback: nếu không gửi tên, lấy gate đầu tiên type='entry'
+    if gate is None:
+        gate = Gate.objects.filter(type="entry").first()
+
+    if gate is None:
+        return Response({"detail": "Không tìm thấy gate hợp lệ"}, status=404)
+
+    # kiểm tra loại gate
+    if gate.type != "entry":
+        return Response({"detail": f"Gate '{gate.name}' không phải là ENTRY"}, status=400)
+
     if ParkingSession.objects.filter(user=qr.user, status="open").exists():
         return Response({"detail": "Người dùng đang có phiên OPEN"}, status=409)
 
-    # Khóa plate
-    plate = _norm(request.data.get("plate_text"))
+    plate = _norm(plate_text or "")
     qr.last_plate = plate
     qr.save(update_fields=["last_plate"])
 
-    # Vehicle (tuỳ chọn cập nhật)
-    vehicle = qr.user.vehicles.first()
-    if not vehicle:
-        vehicle = Vehicle.objects.create(owner=qr.user, plate_number=plate or "UNKNOWN")
-    elif plate:
+    vehicle = qr.user.vehicles.first() or Vehicle.objects.create(owner=qr.user, plate_number=plate or "UNKNOWN")
+    if plate and vehicle.plate_number != plate:
         vehicle.plate_number = plate
         vehicle.save(update_fields=["plate_number"])
 
@@ -261,28 +277,94 @@ def entry(request):
         return Response({"detail": "Chưa cấu hình Tariff"}, status=400)
 
     sess = ParkingSession.objects.create(
-        user=qr.user,
-        vehicle=vehicle,
-        entry_gate=gate,
-        entry_plate=plate or None,
-        tariff=tariff,
-        status="open",
-        qrcode=qr,
-        reservation=res if res else None,
+        user=qr.user, vehicle=vehicle, entry_gate=gate,
+        entry_plate=plate or None, tariff=tariff, status="open",
+        qrcode=qr, reservation=res if res else None,
+    )
+    # Lưu PlateReading
+    PlateReading.objects.create(
+        gate=gate,
+        plate_text=plate,  # biển số vừa đọc
+        confidence=lpr.get("ocr_conf", 1.0) if upload else 1.0,  # nếu từ ảnh thì lấy confidence
+        session=sess
     )
     if res and res.status != 'active':
-        res.status = 'active'
-        res.save(update_fields=['status'])
+        res.status = 'active'; res.save(update_fields=['status'])
 
+    # có thể trả thêm conf để debug
     return Response(ParkingSessionSerializer(sess).data, status=201)
 
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])  # camera/thiết bị
+def exit(request):
+    # 1) Lấy biển số
+    plate_text = request.data.get("plate_text")
+    upload = request.FILES.get("image")
+    if upload and not plate_text:
+        image_bytes = upload.read()
+        lpr = recognize_plate_from_bytes(image_bytes)
+        if not lpr["ok"]:
+            return Response({"detail": "Không đọc được biển số từ ảnh"}, status=422)
+        if lpr["ocr_conf"] < 0.60:
+            return Response({"detail": "Độ tin cậy thấp", "conf": lpr["ocr_conf"]}, status=422)
+        plate_text = lpr["text"]
+
+    # 2) Lấy QR code
+    qr = QRCode.objects.filter(value=request.data.get("qr"), status="active") \
+        .select_related("user", "reservation").first()
+    if not qr:
+        return Response({"detail": "QR không hợp lệ/không active"}, status=404)
+
+    # 3) Lấy gate theo tên
+    gate_name = request.data.get("gate_name") or request.data.get("gate")
+    gate = Gate.objects.filter(name__iexact=(gate_name or "").strip()).first()
+    if not gate or gate.type != "exit":
+        return Response({"detail": "Gate không hợp lệ hoặc không phải EXIT"}, status=400)
+
+    # 4) Lấy session OPEN gần nhất
+    sess = ParkingSession.objects.filter(user=qr.user, status="open").order_by("-entry_time").first()
+    if not sess:
+        return Response({"detail": "Không tìm thấy phiên OPEN"}, status=404)
+
+    # 5) Kiểm tra biển số
+    exit_plate = _norm(plate_text)
+    score = _similar(exit_plate, getattr(qr, "last_plate", ""))
+    if score < 0.80:
+        return Response({"detail": "Biển số không khớp", "score": score}, status=409)
+
+    # Lưu PlateReading tại cổng exit
+    PlateReading.objects.create(
+        gate=gate,
+        plate_text=exit_plate,
+        confidence=score,  # hoặc 1.0 nếu không từ OCR
+        session=sess
+    )
+    # 6) Cập nhật session và tính phí
+    now = timezone.now()
+    sess.exit_gate = gate
+    sess.exit_time = now
+    sess.exit_plate = exit_plate
+
+    duration = int((now - sess.entry_time).total_seconds() // 60)
+
+    tariff = sess.tariff
+    fee = _estimate_fee(tariff.pricing_rule or {}, duration, "car")  # hoặc vehicle_type thật
+    sess.amount = fee
+    sess.status = "closed"
+    sess.save(update_fields=['exit_gate', 'exit_time', 'exit_plate', 'amount', 'status'])
+
+    # 7) Trả dữ liệu
+    return Response({
+        "session_id": str(sess.id),
+        "exit_plate": sess.exit_plate,
+        "amount": sess.amount,
+        "duration_minutes": duration
+    }, status=200)
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def change_info(request):
-    """
-    GET  /auth/changeInfo/  -> trả hồ sơ hiện tại
-    PATCH /auth/changeInfo/ -> cập nhật một phần (full_name, phone, email, ...)
-    """
+
     if request.method == "GET":
         return Response(UserSerializer(request.user).data)
 
@@ -294,10 +376,7 @@ def change_info(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def change_password(request):
-    """
-    POST /auth/changePassword/
-    Body: { "old_password": "...", "new_password": "..." }
-    """
+
     old = request.data.get("old_password")
     new = request.data.get("new_password")
 
@@ -313,71 +392,6 @@ def change_password(request):
     # (Tuỳ chọn) đăng xuất tất cả thiết bị hiện tại:
     Token.objects.filter(user=request.user).delete()
     return Response({"detail": "Đổi mật khẩu thành công, vui lòng đăng nhập lại"}, status=200)
-@api_view(["POST"])
-@permission_classes([permissions.AllowAny])  # camera/thiết bị
-def exit(request):
-    """
-    Body: { qr, gate_id, plate_text }
-    - Tìm session OPEN theo user của QR.
-    - So khớp plate với QR.last_plate (>=0.80).
-    - Tính phí thực tế; nếu có reservation và quá end_time + grace -> phụ phí (overstay).
-    - Đóng phiên, (tuỳ chọn) vô hiệu QR.
-    """
-    qr = QRCode.objects.filter(value=request.data.get("qr"), status="active") \
-                       .select_related("user", "reservation").first()
-    if not qr:
-        return Response({"detail": "QR không hợp lệ/không active"}, status=404)
-
-    try:
-        gate = Gate.objects.get(pk=request.data.get("gate_id"))
-        if gate.type != "exit":
-            return Response({"detail": "gate_id phải là EXIT"}, status=400)
-    except Gate.DoesNotExist:
-        return Response({"detail": "gate_id không tồn tại"}, status=404)
-
-    sess = ParkingSession.objects.filter(user=qr.user, status="open").order_by("-entry_time").first()
-    if not sess:
-        return Response({"detail": "Không tìm thấy phiên OPEN"}, status=404)
-
-    exit_plate = _norm(request.data.get("plate_text"))
-    score = _similar(exit_plate, getattr(qr, "last_plate", ""))
-    if score < 0.80:
-        return Response({"detail": "Biển số không khớp", "score": score}, status=409)
-
-    # Tính phí
-    now = timezone.now()
-    rule = sess.tariff.pricing_rule or {}
-    minutes = int((now - sess.entry_time).total_seconds() // 60)
-    fee = _estimate_fee(rule, minutes, getattr(qr.reservation, 'vehicle_type', 'car'))
-
-    # Overstay nếu có reservation
-    res = qr.reservation
-    over_grace = int(rule.get('overstay_grace_min', 10))
-    over_factor = float(rule.get('overstay_factor', 0.5))  # 50% phí phần vượt (ví dụ)
-    if res:
-        deadline = res.end_time + timedelta(minutes=over_grace)
-        if now > deadline:
-            over_min = int((now - deadline).total_seconds() // 60)
-            over_fee = int(_estimate_fee(rule, over_min, res.vehicle_type) * over_factor)
-            fee += max(0, over_fee)
-            res.status = 'overstayed'
-        else:
-            res.status = 'completed'
-        res.save(update_fields=['status'])
-
-    # Đóng phiên
-    sess.exit_gate = gate
-    sess.exit_time = now
-    sess.exit_plate = exit_plate or None
-    sess.amount = fee
-    sess.status = "closed"
-    sess.save()
-
-    # (tuỳ chọn) vô hiệu QR ngay sau phiên
-    qr.status = "expired"
-    qr.save(update_fields=["status"])
-
-    return Response({"session_id": str(sess.id), "amount": fee, "minutes": minutes}, status=200)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -393,3 +407,52 @@ def reservation_detail(request, pk):
     except Reservation.DoesNotExist:
         return Response({"detail":"Not found"}, status=404)
     return Response(ReservationSerializer(r).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def stats_summary(request):
+    """
+    Trả về tổng quan thống kê cho admin.
+    """
+    now = timezone.now()
+    start_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # 1) Tổng số phiên gửi xe trong tháng
+    total_sessions = ParkingSession.objects.filter(entry_time__gte=start_month).count()
+
+    # 2) Tổng doanh thu tháng
+    total_revenue = Payment.objects.filter(
+        paid_at__gte=start_month, status='paid'
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    # 3) Số lượt đặt chỗ active / expired
+    reservations = Reservation.objects.filter(start_time__gte=start_month)
+    reserved_active = reservations.filter(status='active').count()
+    reserved_expired = reservations.filter(status='expired').count()
+
+    # 4) Phân loại xe (car / motorbike) trong tháng
+    vehicle_stats = ParkingSession.objects.filter(entry_time__gte=start_month) \
+        .values('reservation__vehicle_type') \
+        .annotate(count=Count('id'))
+
+    # 5) Lượt vào / ra mỗi cổng
+    gate_entries = ParkingSession.objects.filter(entry_time__gte=start_month) \
+        .values('entry_gate__name') \
+        .annotate(count=Count('id'))
+    gate_exits = ParkingSession.objects.filter(exit_time__gte=start_month) \
+        .values('exit_gate__name') \
+        .annotate(count=Count('id'))
+
+    data = {
+        "total_sessions": total_sessions,
+        "total_revenue": total_revenue,
+        "reservations": {
+            "active": reserved_active,
+            "expired": reserved_expired
+        },
+        "vehicle_stats": list(vehicle_stats),
+        "gate_entries": list(gate_entries),
+        "gate_exits": list(gate_exits),
+    }
+    return Response(data)

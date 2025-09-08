@@ -3,8 +3,6 @@ import 'package:smart_parking_app/services/api.dart';
 import 'package:smart_parking_app/models/login_response.dart';
 import 'package:go_router/go_router.dart';
 
-import 'register.dart';
-
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,11 +19,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
 
   Future<void> _handleLogin() async {
+      print('Login button pressed'); // Debug line
+
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
 
-    final LoginResponse? res =
-        await ApiService.login(_emailCtrl.text.trim(), _passCtrl.text);
+    final LoginResponse? res = await ApiService.login(
+      _emailCtrl.text.trim(),
+      _passCtrl.text,
+    );
 
     setState(() => _loading = false);
 
@@ -33,11 +35,19 @@ class _LoginScreenState extends State<LoginScreen> {
     if (res != null) {
       await ApiService.me();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đăng nhập thành công!')),
-      );
-      if (!mounted) return;
-        context.goNamed('home');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Đăng nhập thành công!')));
+
+      print(res.is_staff);
+      if (res.is_staff) {
+        print(res.is_staff);
+
+        context.go('/admin');
+      } else {
+        print(res.is_staff);
+        context.go('/home');
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sai tài khoản hoặc mật khẩu')),
@@ -98,10 +108,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: Colors.black.withOpacity(.08),
                             blurRadius: 16,
                             offset: const Offset(0, 8),
-                          )
+                          ),
                         ],
                       ),
-                      child: const Icon(Icons.person, size: 42, color: Colors.black54),
+                      child: const Icon(
+                        Icons.person,
+                        size: 42,
+                        color: Colors.black54,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -124,10 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(height: 6),
                         Text(
                           'Sign in to continue.',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 15,
-                          ),
+                          style: TextStyle(color: Colors.white70, fontSize: 15),
                         ),
                       ],
                     ),
@@ -146,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: Colors.black.withOpacity(.06),
                           blurRadius: 18,
                           offset: const Offset(0, 8),
-                        )
+                        ),
                       ],
                     ),
                     child: Form(
@@ -158,7 +169,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _emailCtrl,
                             textInputAction: TextInputAction.next,
                             keyboardType: TextInputType.emailAddress,
-                            autofillHints: const [AutofillHints.username, AutofillHints.email],
+                            autofillHints: const [
+                              AutofillHints.username,
+                              AutofillHints.email,
+                            ],
                             decoration: InputDecoration(
                               labelText: 'Email hoặc Tài khoản',
                               prefixIcon: const Icon(Icons.mail_outline),
@@ -169,11 +183,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFE6E8EC)),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE6E8EC),
+                                ),
                               ),
                             ),
-                            validator: (v) =>
-                                (v == null || v.trim().isEmpty) ? 'Vui lòng nhập tài khoản' : null,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Vui lòng nhập tài khoản'
+                                : null,
                           ),
                           const SizedBox(height: 14),
 
@@ -188,8 +205,13 @@ class _LoginScreenState extends State<LoginScreen> {
                               labelText: 'Mật khẩu',
                               prefixIcon: const Icon(Icons.lock_outline),
                               suffixIcon: IconButton(
-                                onPressed: () => setState(() => _obscure = !_obscure),
-                                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                                onPressed: () =>
+                                    setState(() => _obscure = !_obscure),
+                                icon: Icon(
+                                  _obscure
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
                               ),
                               filled: true,
                               fillColor: const Color(0xFFF9FAFB),
@@ -198,11 +220,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFE6E8EC)),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE6E8EC),
+                                ),
                               ),
                             ),
-                            validator: (v) =>
-                                (v == null || v.isEmpty) ? 'Vui lòng nhập mật khẩu' : null,
+                            validator: (v) => (v == null || v.isEmpty)
+                                ? 'Vui lòng nhập mật khẩu'
+                                : null,
                           ),
 
                           const SizedBox(height: 10),
@@ -233,7 +258,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ? const SizedBox(
                                       width: 22,
                                       height: 22,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Text(
                                       'Login',

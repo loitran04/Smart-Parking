@@ -164,7 +164,7 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 
 # ===== CORS =====
-CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL", "1") == "1"
+CORS_ALLOW_ALL_ORIGINS = True
 
 # ===== Password Validators =====
 AUTH_PASSWORD_VALIDATORS = [

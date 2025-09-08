@@ -10,6 +10,8 @@ import 'screens/tabs/home_tab.dart';
 import 'screens/tabs/history_tab.dart';
 import 'screens/tabs/info_tab.dart';
 import 'screens/receipt/reservation_receipt.dart';
+import 'admin/home_admin.dart';
+
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/login', // vào login trước cho rõ ràng
@@ -19,6 +21,11 @@ final GoRouter appRouter = GoRouter(
       path: '/login',
       name: 'login',
       builder: (context, state) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/admin',
+      name: 'admin',
+      builder: (context, state) => HomeAdminScreen(),
     ),
     GoRoute(
       path: '/register', // << BẮT BUỘC có

@@ -7,11 +7,12 @@ import 'dart:io' show Platform;
 import '../models/user_model.dart';
 import '../models/reservation_model.dart';
 
-String get baseUrl {
-  // if (kIsWeb) return 'http://localhost:8000';
-  if (Platform.isAndroid) return 'http://10.0.2.2:8000'; // Android emulator
-  return 'http://127.0.0.1:8000'; // iOS Simulator / desktop
+String getBaseUrl() {
+  if (kIsWeb) return 'http://localhost:8000';
+  if (Platform.isAndroid) return 'http://10.0.2.2:8000';
+  return 'http://localhost:8000'; // iOS/macOS/Windows
 }
+final String baseUrl = getBaseUrl();
 
 class ApiService {
   //login
@@ -23,9 +24,12 @@ class ApiService {
       body: jsonEncode({"username": username, "password": password}),
     );
 
+    print('Response status: ${response.statusCode}'); // Debug status code
+    print('Response body: ${response.body}'); // Debug body response
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final loginRes = LoginResponse.fromJson(data);
+      
 
       // lưu token để dùng về sau
       final prefs = await SharedPreferences.getInstance();
