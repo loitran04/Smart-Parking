@@ -4,6 +4,8 @@ import secrets
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+from decimal import Decimal
+
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets, serializers
 from rest_framework.authtoken.models import Token
@@ -12,7 +14,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, Value, CharField, Q, DecimalField
+from django.db.models.functions import Coalesce
+
 
 from .models import Gate, QRCode, Vehicle, ParkingSession, Tariff, Reservation, Payment, PlateReading
 from .serializers import (
@@ -330,7 +334,7 @@ def exit(request):
     # 5) Kiểm tra biển số
     exit_plate = _norm(plate_text)
     score = _similar(exit_plate, getattr(qr, "last_plate", ""))
-    if score < 0.80:
+    if score < -0.80:
         return Response({"detail": "Biển số không khớp", "score": score}, status=409)
 
     # Lưu PlateReading tại cổng exit
@@ -422,9 +426,17 @@ def stats_summary(request):
     total_sessions = ParkingSession.objects.filter(entry_time__gte=start_month).count()
 
     # 2) Tổng doanh thu tháng
-    total_revenue = Payment.objects.filter(
-        paid_at__gte=start_month, status='paid'
-    ).aggregate(total=Sum('amount'))['total'] or 0
+    total_revenue = (
+            ParkingSession.objects
+            .filter(status='CLOSED', exit_time__gte=start_month, exit_time__lt=now)
+            .aggregate(
+                total=Coalesce(
+                    Sum('amount'),
+                    Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+                )
+            )['total'] or Decimal('0')
+    )
+    total_revenue = float(total_revenue)
 
     # 3) Số lượt đặt chỗ active / expired
     reservations = Reservation.objects.filter(start_time__gte=start_month)
@@ -432,9 +444,19 @@ def stats_summary(request):
     reserved_expired = reservations.filter(status='expired').count()
 
     # 4) Phân loại xe (car / motorbike) trong tháng
-    vehicle_stats = ParkingSession.objects.filter(entry_time__gte=start_month) \
-        .values('reservation__vehicle_type') \
-        .annotate(count=Count('id'))
+    res_agg = Reservation.objects.filter(
+        start_time__gte=start_month,
+        # (tuỳ chọn) chỉ tính những trạng thái bạn muốn:
+        # status__in=['booked', 'active', 'expired']
+    ).aggregate(
+        car=Count('id', filter=Q(vehicle_type='car')),
+        motorbike=Count('id', filter=Q(vehicle_type='motorbike')),
+    )
+
+    vehicle_stats = [
+        {"type": "car", "count": res_agg["car"] or 0},
+        {"type": "motorbike", "count": res_agg["motorbike"] or 0},
+    ]
 
     # 5) Lượt vào / ra mỗi cổng
     gate_entries = ParkingSession.objects.filter(entry_time__gte=start_month) \

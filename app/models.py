@@ -1,4 +1,6 @@
 import uuid
+from datetime import timezone
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -147,6 +149,24 @@ class ParkingSession(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.vehicle} - {self.status}"
+
+    def save(self, *args, **kwargs):
+        creating = self._state.adding
+        old_status = None
+        if not creating:
+            old_status = ParkingSession.objects.get(pk=self.pk).status
+
+        super().save(*args, **kwargs)
+
+        # Khi chuyển từ OPEN → CLOSED thì tạo Payment
+        if old_status == 'OPEN' and self.status == 'CLOSED':
+            Payment.objects.create(
+                session=self,
+                user=self.user,
+                amount=self.amount,
+                status='paid',  # hoặc pending tùy hệ thống bạn
+                paid_at=timezone.now(),
+            )
 
 # ===== Payment =====
 class Payment(models.Model):
