@@ -21,8 +21,10 @@ from django.db.models.functions import Coalesce
 from .models import Gate, QRCode, Vehicle, ParkingSession, Tariff, Reservation, Payment, PlateReading
 from .serializers import (
     GateSerializer, QRCodeSerializer, VehicleSerializer,
-    ParkingSessionSerializer, UserSerializer, ReservationSerializer
+    ParkingSessionSerializer, UserSerializer,
+    ReservationSerializer, TariffSerializer
 )
+from rest_framework.permissions import IsAdminUser as IsAdmin
 from .lpr import recognize_plate_from_bytes
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -478,3 +480,15 @@ def stats_summary(request):
         "gate_exits": list(gate_exits),
     }
     return Response(data)
+class TariffViewSet(viewsets.ModelViewSet):
+    queryset = Tariff.objects.all().order_by('name')
+    serializer_class = TariffSerializer
+
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
+class GateViewSet(viewsets.ModelViewSet):
+    queryset = Gate.objects.all().order_by('name')
+    serializer_class = GateSerializer
+    permission_classes = [IsAdmin]

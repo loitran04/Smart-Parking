@@ -3,12 +3,13 @@ from django.urls import path, include
 from .views import (RegisterView, LoginView, LogoutView, register_parking,
                     entry, exit, GateViewSet, MeView,
                     change_info, change_password, my_reservations,
-                    reservation_detail, stats_summary)
+                    reservation_detail, stats_summary, TariffViewSet)
 from rest_framework.routers import DefaultRouter
 
 # Tạo router cho GateViewSet
 router = DefaultRouter()
 router.register(r"gates", GateViewSet, basename="gates")
+router.register(r"tariffs", TariffViewSet, basename="tariff")
 
 urlpatterns = [
     # Đăng ký, đăng nhập, đăng xuất

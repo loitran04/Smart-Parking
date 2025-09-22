@@ -10,7 +10,7 @@ import 'screens/tabs/home_tab.dart';
 import 'screens/tabs/history_tab.dart';
 import 'screens/tabs/info_tab.dart';
 import 'screens/receipt/reservation_receipt.dart';
-import 'admin/home_admin.dart';
+import 'admin/admin_shell.dart';
 
 
 final GoRouter appRouter = GoRouter(
@@ -25,7 +25,7 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/admin',
       name: 'admin',
-      builder: (context, state) => HomeAdminScreen(),
+      builder: (context, state) => AdminShell(),
     ),
     GoRoute(
       path: '/register', // << BẮT BUỘC có

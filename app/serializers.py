@@ -99,41 +99,43 @@ class QRCodeSerializer(serializers.ModelSerializer):
 class GateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Gate
-        fields = ["id", "name", "type", "location"]
-        read_only_fields = ["id"]
+        fields = ['id', 'name', 'type', 'location', 'device_camera_id', 'device_qr_id']
 
 
 class TariffSerializer(serializers.ModelSerializer):
+    # (tuỳ chọn) thêm 'summary' để FE hiển thị ngay nếu muốn
+    summary = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Tariff
-        fields = ["id", "name", "pricing_rule", "currency"]
-        read_only_fields = ["id"]
+        fields = ['id', 'name', 'currency', 'pricing_rule', 'summary']
 
-    def validate_currency(self, v):
-        v = v.upper()
-        if not re.fullmatch(r"^[A-Z]{3}$", v) and v != "VND":
-            raise serializers.ValidationError("Currency phải là mã 3 chữ cái (VD: VND, USD).")
-        return v
+    def get_summary(self, obj):
+        r = obj.pricing_rule or {}
+        vt = r.get('vehicle_type')
+        vt_label = {'car': 'Ô tô', 'motorbike': 'Xe máy'}.get(vt, vt or '—')
+        rate = r.get('per_block') or r.get('rate_per_hour') or 0
+        block = r.get('block_minutes') or 60
+        start = r.get('start') or r.get('time', {}).get('start') or '00:00'
+        end   = r.get('end')   or r.get('time', {}).get('end')   or '23:59'
+        cap = r.get('cap')
+        sur = r.get('surcharge_pct', 0)
+        parts = [
+            vt_label,
+            f'Đơn giá: {int(rate)}đ/{("block" if r.get("per_block") else "h")}',
+            f'Block: {block}p' if r.get('per_block') else None,
+            f'Khung giờ: {start}–{end}',
+            f'Trần: {int(cap)}đ' if cap is not None else 'Trần: -đ',
+            f'Phụ phí: {int(sur)}%',
+        ]
+        return ' · '.join([p for p in parts if p])
+    def validate_pricing_rule(self, value):
+        if 'vehicle_type' not in value:
+            raise serializers.ValidationError("pricing_rule.vehicle_type is required")
+        if 'rate_per_hour' not in value:
+            raise serializers.ValidationError("pricing_rule.rate_per_hour is required")
+        return value
 
-    def validate_pricing_rule(self, rule):
-        # ví dụ: {"free_first_min":15,"block_minutes":60,"per_block":10000}
-        required = ["block_minutes"]
-        for k in required:
-            if k not in rule:
-                raise serializers.ValidationError(f"pricing_rule thiếu khóa bắt buộc: {k}")
-            if not isinstance(rule[k], int) or rule[k] < 0:
-                raise serializers.ValidationError(f"pricing_rule.{k} phải là số nguyên không âm.")
-        # per_block hoặc per_block_by_type tối thiểu phải có một
-        if "per_block" not in rule and "per_block_by_type" not in rule:
-            raise serializers.ValidationError("pricing_rule cần 'per_block' hoặc 'per_block_by_type'.")
-        if "per_block" in rule and (not isinstance(rule["per_block"], int) or rule["per_block"] < 0):
-            raise serializers.ValidationError("pricing_rule.per_block phải là số nguyên không âm.")
-        if "per_block_by_type" in rule and not isinstance(rule["per_block_by_type"], dict):
-            raise serializers.ValidationError("pricing_rule.per_block_by_type phải là object.")
-        if "free_first_min" in rule:
-            if not isinstance(rule["free_first_min"], int) or rule["free_first_min"] < 0:
-                raise serializers.ValidationError("pricing_rule.free_first_min phải là số nguyên không âm.")
-        return rule
 
 class ReservationSerializer(serializers.ModelSerializer):
     # tiện hiển thị QR hiện tại (nếu có)

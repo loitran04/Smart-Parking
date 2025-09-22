@@ -12,9 +12,117 @@ String getBaseUrl() {
   if (Platform.isAndroid) return 'http://10.0.2.2:8000';
   return 'http://localhost:8000'; // iOS/macOS/Windows
 }
+
 final String baseUrl = getBaseUrl();
 
 class ApiService {
+  ApiService({String? baseUrl, this.authScheme = 'Token'})
+    : _baseOverride = baseUrl;
+  final String? _baseOverride;
+  final String authScheme;
+  String _base() => _baseOverride ?? baseUrl; // baseUrl global bạn có ở trên
+
+  Future<Map<String, String>> _headers() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    return {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty)
+        'Authorization': '$authScheme $token',
+    };
+  }
+
+  // ===== Tariffs =====
+  Future<List<Map<String, dynamic>>> listTariffs() async {
+    final r = await http.get(
+      Uri.parse('${_base()}/tariffs/'),
+      headers: await _headers(),
+    );
+    if (r.statusCode != 200)
+      throw Exception('Tariffs GET ${r.statusCode}: ${r.body}');
+    return List<Map<String, dynamic>>.from(json.decode(r.body));
+  }
+
+  Future<Map<String, dynamic>> createTariff(Map<String, dynamic> body) async {
+    final r = await http.post(
+      Uri.parse('${_base()}/tariffs/'),
+      headers: await _headers(),
+      body: json.encode(body),
+    );
+    if (r.statusCode != 201)
+      throw Exception('Tariff POST ${r.statusCode}: ${r.body}');
+    return json.decode(r.body);
+  }
+
+  Future<Map<String, dynamic>> updateTariff(
+    String id,
+    Map<String, dynamic> body,
+  ) async {
+    final r = await http.put(
+      Uri.parse('${_base()}/tariffs/$id/'),
+      headers: await _headers(),
+      body: json.encode(body),
+    );
+    if (r.statusCode != 200)
+      throw Exception('Tariff PUT ${r.statusCode}: ${r.body}');
+    return json.decode(r.body);
+  }
+
+  Future<void> deleteTariff(String id) async {
+    final r = await http.delete(
+      Uri.parse('${_base()}/tariffs/$id/'),
+      headers: await _headers(),
+    );
+    if (r.statusCode != 204)
+      throw Exception('Tariff DELETE ${r.statusCode}: ${r.body}');
+  }
+
+  // ===== Gates =====
+  Future<List<Map<String, dynamic>>> listGates() async {
+    final r = await http.get(
+      Uri.parse('${_base()}/gates/'),
+      headers: await _headers(),
+    );
+    if (r.statusCode != 200)
+      throw Exception('Gates GET ${r.statusCode}: ${r.body}');
+    return List<Map<String, dynamic>>.from(json.decode(r.body));
+  }
+
+  Future<Map<String, dynamic>> createGate(Map<String, dynamic> body) async {
+    final r = await http.post(
+      Uri.parse('${_base()}/gates/'),
+      headers: await _headers(),
+      body: json.encode(body),
+    );
+    if (r.statusCode != 201)
+      throw Exception('Gate POST ${r.statusCode}: ${r.body}');
+    return json.decode(r.body);
+  }
+
+  Future<Map<String, dynamic>> updateGate(
+    String id,
+    Map<String, dynamic> body,
+  ) async {
+    final r = await http.put(
+      Uri.parse('${_base()}/gates/$id/'),
+      headers: await _headers(),
+      body: json.encode(body),
+    );
+    if (r.statusCode != 200)
+      throw Exception('Gate PUT ${r.statusCode}: ${r.body}');
+    return json.decode(r.body);
+  }
+
+  Future<void> deleteGate(String id) async {
+    final r = await http.delete(
+      Uri.parse('${_base()}/gates/$id/'),
+      headers: await _headers(),
+    );
+    if (r.statusCode != 204)
+      throw Exception('Gate DELETE ${r.statusCode}: ${r.body}');
+  }
+
   //login
   static Future<LoginResponse?> login(String username, String password) async {
     final url = Uri.parse("${baseUrl}/auth/login/");
@@ -29,7 +137,6 @@ class ApiService {
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final loginRes = LoginResponse.fromJson(data);
-      
 
       // lưu token để dùng về sau
       final prefs = await SharedPreferences.getInstance();

@@ -118,7 +118,8 @@ class Gate(models.Model):
     name = models.CharField(max_length=50, unique=True)
     type = models.CharField(max_length=15, choices=GATE_TYPES)
     location = models.CharField(max_length=120, blank=True)
-
+    device_camera_id = models.CharField(max_length=50, blank=True, null=True)
+    device_qr_id = models.CharField(max_length=50, blank=True, null=True)
     def __str__(self):
         return f"{self.name} ({self.type})"
 
