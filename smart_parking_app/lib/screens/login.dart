@@ -19,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
 
   Future<void> _handleLogin() async {
-      print('Login button pressed'); // Debug line
+      print('Login button pressed'); 
 
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colorPrimary = const Color(0xFFF24E4E); // đỏ san hô
+    final colorPrimary = const Color(0xFFF24E4E);
     final colorPrimaryDark = const Color(0xFFE03434);
 
     return Scaffold(
@@ -72,7 +72,6 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            // Header gradient bo tròn
             Container(
               height: 260,
               decoration: BoxDecoration(
@@ -88,13 +87,11 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
 
-            // Nội dung
             SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Avatar tròn
                   const SizedBox(height: 8),
                   Center(
                     child: Container(
@@ -120,7 +117,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 18),
 
-                  // Tiêu đề
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Column(
@@ -145,7 +141,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 22),
 
-                  // Card form
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
@@ -164,7 +159,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       key: _formKey,
                       child: Column(
                         children: [
-                          // Email / Username
                           TextFormField(
                             controller: _emailCtrl,
                             textInputAction: TextInputAction.next,
@@ -194,7 +188,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 14),
 
-                          // Password
                           TextFormField(
                             controller: _passCtrl,
                             obscureText: _obscure,
@@ -240,7 +233,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 6),
 
-                          // Nút Login
                           SizedBox(
                             width: double.infinity,
                             height: 52,
@@ -277,7 +269,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
 
                   const SizedBox(height: 16),
-                  // Footer đăng ký
                   Center(
                     child: Wrap(
                       crossAxisAlignment: WrapCrossAlignment.center,

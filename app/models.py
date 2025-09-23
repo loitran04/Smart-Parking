@@ -4,7 +4,6 @@ from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
-# ===== Choices =====
 STATUS_QR = [
     ('active',  'ACTIVE'),
     ('revoked', 'REVOKED'),
@@ -25,19 +24,18 @@ PAY_STATUS = [
     ('refunded', 'REFUNDED'),
 ]
 RES_STATUS = [
-    ('booked',     'BOOKED'),     # đặt chỗ đã tạo, chưa vào
-    ('active',     'ACTIVE'),     # đã vào bãi (đang sử dụng)
-    ('completed',  'COMPLETED'),  # rời bãi xong
-    ('cancelled',  'CANCELLED'),  # hủy bởi user/hệ thống
-    ('expired',    'EXPIRED'),    # quá giờ mà chưa vào (no-show)
-    ('overstayed', 'OVERSTAYED'), # rời bãi nhưng vượt quá end_time (để thống kê)
+    ('booked',     'BOOKED'),
+    ('active',     'ACTIVE'),
+    ('completed',  'COMPLETED'),
+    ('cancelled',  'CANCELLED'),
+    ('expired',    'EXPIRED'),
+    ('overstayed', 'OVERSTAYED'),
 ]
 VEHICLE_TYPES = [
     ('car',       'CAR'),
     ('motorbike', 'MOTORBIKE'),
 ]
 
-# ===== User =====
 class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     full_name = models.CharField(max_length=120)
@@ -46,7 +44,6 @@ class User(AbstractUser):
     def __str__(self):
         return self.username
 
-# ===== Vehicle (biển số unique theo chủ) =====
 class Vehicle(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="vehicles")
@@ -60,7 +57,6 @@ class Vehicle(models.Model):
     def __str__(self):
         return self.plate_number
 
-# ===== Tariff =====
 class Tariff(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=60)
@@ -70,14 +66,13 @@ class Tariff(models.Model):
     def __str__(self):
         return self.name
 
-# ===== Reservation (đặt chỗ) =====
 class Reservation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reservations')
     vehicle_type = models.CharField(max_length=16, choices=VEHICLE_TYPES)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
-    estimated_fee = models.IntegerField(default=0)  # ước tính theo tariff tại thời điểm đặt
+    estimated_fee = models.IntegerField(default=0)
     status = models.CharField(max_length=12, choices=RES_STATUS, default='booked')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -90,18 +85,16 @@ class Reservation(models.Model):
     def __str__(self):
         return f"{self.user} {self.vehicle_type} {self.start_time:%Y-%m-%d %H:%M}"
 
-# ===== QRCode (nhiều QR / user; gắn 1-1 với Reservation) =====
 class QRCode(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="qrcodes")
-    # mỗi đặt chỗ 1 QR; nullable để vẫn hỗ trợ “QR rỗng không qua đặt chỗ”
     reservation = models.OneToOneField(
         Reservation, on_delete=models.SET_NULL, null=True, blank=True, related_name='qr'
     )
     value = models.CharField(max_length=128, unique=True, db_index=True)
     status = models.CharField(max_length=20, choices=STATUS_QR, default="active")
     issued_at = models.DateTimeField(auto_now_add=True)
-    expired_at = models.DateTimeField(null=True, blank=True)  # TTL hoặc end_time(+grace)
+    expired_at = models.DateTimeField(null=True, blank=True)
     last_plate = models.CharField(max_length=20, blank=True, null=True, db_index=True)
 
     class Meta:
@@ -112,7 +105,6 @@ class QRCode(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.value}"
 
-# ===== Gate =====
 class Gate(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=50, unique=True)
@@ -123,7 +115,6 @@ class Gate(models.Model):
     def __str__(self):
         return f"{self.name} ({self.type})"
 
-# ===== ParkingSession =====
 class ParkingSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="sessions")
@@ -138,7 +129,6 @@ class ParkingSession(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     tariff = models.ForeignKey(Tariff, on_delete=models.PROTECT)
 
-    # liên kết để truy vết
     qrcode = models.ForeignKey(QRCode, on_delete=models.SET_NULL, null=True, blank=True, related_name='sessions')
     reservation = models.ForeignKey(Reservation, on_delete=models.SET_NULL, null=True, blank=True, related_name='sessions')
 
@@ -159,29 +149,24 @@ class ParkingSession(models.Model):
 
         super().save(*args, **kwargs)
 
-        # ✅ Khi chuyển từ open → closed thì tạo Payment (chỉ 1 lần)
         if old_status == 'open' and self.status == 'closed':
             if self.amount is None:
-                # Không có amount thì không tạo payment
                 return
-            # Tránh tạo trùng (OneToOne: session)
             Payment.objects.get_or_create(
                 session=self,
                 defaults={
-                    'provider': 'CASH',  # hoặc 'SYSTEM' / 'VNPAY' tuỳ flow
+                    'provider': 'CASH',
                     'amount': self.amount,
                     'currency': self.tariff.currency if self.tariff and self.tariff.currency else 'VND',
-                    'status': 'paid',  # nếu dùng cổng thanh toán, đặt 'pending' rồi đổi sau
+                    'status': 'paid',
                     'paid_at': timezone.now(),
-                    # 'tx_ref': ''                      # tuỳ bạn, có thể để trống
                 }
             )
 
-# ===== Payment =====
 class Payment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.OneToOneField(ParkingSession, on_delete=models.CASCADE, related_name="payment")
-    provider = models.CharField(max_length=20)  # VNPAY/MOMO/STRIPE/CASH
+    provider = models.CharField(max_length=20)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=8, default="VND")
     paid_at = models.DateTimeField(null=True, blank=True)
@@ -191,7 +176,6 @@ class Payment(models.Model):
     def __str__(self):
         return f"{self.provider} - {self.amount} {self.currency} ({self.status})"
 
-# ===== PlateReading =====
 class PlateReading(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     gate = models.ForeignKey(Gate, on_delete=models.SET_NULL, null=True)

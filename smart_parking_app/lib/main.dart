@@ -14,8 +14,8 @@ import 'admin/admin_shell.dart';
 import 'screens/payment_history_page.dart';
 
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/login', // vào login trước cho rõ ràng
-  debugLogDiagnostics: true, // in ra cây route để kiểm tra
+  initialLocation: '/login', 
+  debugLogDiagnostics: true, 
   routes: <RouteBase>[
     GoRoute(
       path: '/login',
@@ -28,7 +28,7 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => AdminShell(),
     ),
     GoRoute(
-      path: '/register', // << BẮT BUỘC có
+      path: '/register', 
       name: 'register',
       builder: (context, state) => const RegisterScreen(),
     ),
@@ -57,7 +57,6 @@ final GoRouter appRouter = GoRouter(
           builder: (_, __) => const PaymentHistoryPage(),
         ),
 
-        // Trang hóa đơn; nhận id bằng path, có thể kèm extra là ReservationModel để tránh gọi mạng lần 2
       ],
     ),
     GoRoute(
@@ -65,7 +64,7 @@ final GoRouter appRouter = GoRouter(
       name: 'receipt',
       builder: (context, state) {
         final id = state.pathParameters['id']!;
-        final extra = state.extra; // có thể là ReservationModel
+        final extra = state.extra; 
         return ReservationReceiptScreen(reservationId: id, initial: extra);
       },
     ),
@@ -74,10 +73,10 @@ final GoRouter appRouter = GoRouter(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  Intl.defaultLocale = 'vi'; // hoặc 'vi_VN'
+  Intl.defaultLocale = 'vi'; 
   await initializeDateFormatting(
     'vi',
-  ); // hoặc initializeDateFormatting('vi_VN')
+  ); 
   runApp(const MyApp());
 }
 
@@ -92,7 +91,6 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFF24E4E)),
       ),
-      // (khuyến nghị) bật localizations cho Material
       supportedLocales: const [Locale('vi'), Locale('en')],
     );
   }

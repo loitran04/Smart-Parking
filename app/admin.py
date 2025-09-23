@@ -1,4 +1,3 @@
-# app/admin.py
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
@@ -7,7 +6,6 @@ from .models import (
     ParkingSession, Payment, PlateReading, Vehicle
 )
 
-# --- User ---
 try:
     admin.site.unregister(User)
 except NotRegistered:
@@ -22,23 +20,21 @@ class UserAdmin(DjangoUserAdmin):
         (None, {'classes': ('wide',), 'fields': ('full_name', 'phone')}),
     )
     list_display  = ('username', 'full_name', 'email', 'phone', 'is_staff')
-    search_fields = ('username', 'full_name', 'email', 'phone')  # <-- bắt buộc
+    search_fields = ('username', 'full_name', 'email', 'phone')
 
-# --- Reservation ---
 @admin.register(Reservation)
 class ReservationAdmin(admin.ModelAdmin):
     list_display  = ('id', 'user', 'vehicle_type', 'start_time', 'end_time', 'estimated_fee', 'status')
     list_filter   = ('status', 'vehicle_type')
-    search_fields = ('id', 'user__username', 'user__full_name', 'user__email')  # <-- bắt buộc
+    search_fields = ('id', 'user__username', 'user__full_name', 'user__email')
     autocomplete_fields = ('user',)
     ordering = ('-start_time',)
 
-# --- QRCode ---
 @admin.register(QRCode)
 class QRCodeAdmin(admin.ModelAdmin):
     list_display  = ('value', 'user', 'status', 'expired_at', 'reservation', 'last_plate')
     list_filter   = ('status',)
-    search_fields = ('value', 'user__username', 'reservation__id', 'last_plate')  # <-- bắt buộc
+    search_fields = ('value', 'user__username', 'reservation__id', 'last_plate')
     autocomplete_fields = ('user', 'reservation')
 
 @admin.register(Gate)

@@ -11,7 +11,7 @@ import '../models/payment_model.dart';
 String getBaseUrl() {
   if (kIsWeb) return 'http://localhost:8000';
   if (Platform.isAndroid) return 'http://10.0.2.2:8000';
-  return 'http://localhost:8000'; // iOS/macOS/Windows
+  return 'http://localhost:8000'; 
 }
 
 final String baseUrl = getBaseUrl();
@@ -21,7 +21,7 @@ class ApiService {
     : _baseOverride = baseUrl;
   final String? _baseOverride;
   final String authScheme;
-  String _base() => _baseOverride ?? baseUrl; // baseUrl global bạn có ở trên
+  String _base() => _baseOverride ?? baseUrl;
 
   Future<Map<String, String>> _headers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -34,7 +34,6 @@ class ApiService {
     };
   }
 
-  // ===== Tariffs =====
   Future<List<Map<String, dynamic>>> listTariffs() async {
     final r = await http.get(
       Uri.parse('${_base()}/tariffs/'),
@@ -79,7 +78,6 @@ class ApiService {
       throw Exception('Tariff DELETE ${r.statusCode}: ${r.body}');
   }
 
-  // ===== Gates =====
   Future<List<Map<String, dynamic>>> listGates() async {
     final r = await http.get(
       Uri.parse('${_base()}/gates/'),
@@ -124,7 +122,6 @@ class ApiService {
       throw Exception('Gate DELETE ${r.statusCode}: ${r.body}');
   }
 
-  //login
   static Future<LoginResponse?> login(String username, String password) async {
     final url = Uri.parse("${baseUrl}/auth/login/");
     final response = await http.post(
@@ -133,22 +130,19 @@ class ApiService {
       body: jsonEncode({"username": username, "password": password}),
     );
 
-    print('Response status: ${response.statusCode}'); // Debug status code
-    print('Response body: ${response.body}'); // Debug body response
+    print('Response status: ${response.statusCode}');
+    print('Response body: ${response.body}'); 
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final loginRes = LoginResponse.fromJson(data);
 
-      // lưu token để dùng về sau
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('auth_token', loginRes.token);
       await prefs.setString('user_id', loginRes.userId);
 
-      // ⬇️ LƯU LUÔN user nếu backend trả về
       if (data['user'] != null) {
         await prefs.setString('user_json', jsonEncode(data['user']));
       } else {
-        // fallback: gọi /auth/me để lấy và cache
         await me();
       }
 
@@ -158,7 +152,6 @@ class ApiService {
     }
   }
 
-  //register
   static Future<bool> registerUser({
     required String username,
     required String email,
@@ -180,13 +173,12 @@ class ApiService {
       },
     );
 
-    // Backend của bạn có thể trả 200 hoặc 201 khi tạo thành công
     return response.statusCode == 200 || response.statusCode == 201;
   }
 
   static Future<Map<String, dynamic>?> getQr() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString("auth_token"); // <-- sửa key
+    final token = prefs.getString("auth_token"); 
 
     if (token == null) return null;
 
@@ -196,13 +188,10 @@ class ApiService {
       headers: {"Authorization": "Token $token"},
     );
 
-    // API trả 201 theo BE; chấp nhận mọi 2xx
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
     if (kIsWeb) {
-      // tiện debug khi chạy web
-      // ignore: avoid_print
       print('getQr ERROR ${res.statusCode} - ${res.body}');
     }
     return null;
@@ -226,7 +215,6 @@ class ApiService {
       return user;
     }
 
-    // Token hết hạn → dọn cache (tùy chọn)
     if (response.statusCode == 401) {
       await prefs.remove('auth_token');
       await prefs.remove('user_json');
@@ -234,7 +222,6 @@ class ApiService {
     return null;
   }
 
-  /// Lấy user từ cache (nếu có)
   static Future<UserModel?> getCachedUser() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('user_json');
@@ -242,7 +229,6 @@ class ApiService {
     return UserModel.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
-  /// Cập nhật thông tin hồ sơ (PATCH /auth/changeInfo/)
   static Future<UserModel?> changeInfo({
     String? fullName,
     String? email,
@@ -275,7 +261,6 @@ class ApiService {
     return null;
   }
 
-  /// Đổi mật khẩu (POST /auth/changePassword/)
   static Future<bool> changePassword(String oldPwd, String newPwd) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');
@@ -293,7 +278,6 @@ class ApiService {
     return res.statusCode == 200;
   }
 
-  /// Đăng xuất (gọi API + xoá cache)
   static Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');
@@ -309,9 +293,9 @@ class ApiService {
   }
 
   static Future<ReservationModel?> createReservation({
-    required String vehicleType, // 'car' | 'motorbike'
-    required DateTime startTime, // thời điểm vào
-    required int durationMinutes, // tổng phút đỗ
+    required String vehicleType, 
+    required DateTime startTime,
+    required int durationMinutes, 
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');

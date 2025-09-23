@@ -52,7 +52,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng ký thành công! Hãy đăng nhập.')),
       );
-      context.goNamed('home');  // → vào Home
+      context.goNamed('home');  
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng ký thất bại, vui lòng thử lại.')),
@@ -147,7 +147,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 22),
 
-                  // Card form
+                  
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),

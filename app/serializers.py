@@ -9,8 +9,7 @@ from .models import (
     ParkingSession, Payment, PlateReading, Reservation
 )
 
-# ==== Helpers ====
-PLATE_RE = re.compile(r"^[A-Z0-9\-]{5,12}$")   # đơn giản & linh hoạt, bạn có thể siết theo chuẩn VN sau
+PLATE_RE = re.compile(r"^[A-Z0-9\-]{5,12}$")
 
 def normalize_plate(s: str | None) -> str | None:
     if not s:
@@ -28,7 +27,6 @@ def estimate_fee(rule: dict, duration_min: int, vehicle_type: str) -> int:
     blocks = (payable + block - 1) // block
     return blocks * per
 
-# ==== Serializers ====
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -57,7 +55,6 @@ class VehicleSerializer(serializers.ModelSerializer):
         return v
 
     def validate(self, attrs):
-        # plate unique theo owner
         owner = attrs.get("owner") or getattr(self.instance, "owner", None)
         plate = attrs.get("plate_number") or getattr(self.instance, "plate_number", None)
         if owner and plate:
@@ -69,7 +66,6 @@ class VehicleSerializer(serializers.ModelSerializer):
         return attrs
 
     def to_internal_value(self, data):
-        # normalize trước khi validate
         if "plate_number" in data and data["plate_number"]:
             data = {**data, "plate_number": normalize_plate(data["plate_number"])}
         return super().to_internal_value(data)
@@ -90,7 +86,6 @@ class QRCodeSerializer(serializers.ModelSerializer):
         status = attrs.get("status") or getattr(self.instance, "status", None)
         expired_at = attrs.get("expired_at") or getattr(self.instance, "expired_at", None)
         if expired_at and expired_at <= timezone.now():
-            # cho phép set quá khứ nếu status = expired
             if status != "expired":
                 raise serializers.ValidationError("expired_at nằm trong quá khứ → status phải là 'expired'.")
         return attrs
@@ -103,7 +98,6 @@ class GateSerializer(serializers.ModelSerializer):
 
 
 class TariffSerializer(serializers.ModelSerializer):
-    # (tuỳ chọn) thêm 'summary' để FE hiển thị ngay nếu muốn
     summary = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -138,7 +132,6 @@ class TariffSerializer(serializers.ModelSerializer):
 
 
 class ReservationSerializer(serializers.ModelSerializer):
-    # tiện hiển thị QR hiện tại (nếu có)
     qr_value = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -158,7 +151,6 @@ class ReservationSerializer(serializers.ModelSerializer):
         end = attrs.get("end_time") or getattr(self.instance, "end_time", None)
         if start and end and end <= start:
             raise serializers.ValidationError("end_time phải sau start_time.")
-        # chỉ enforce ở tạo mới
         if self.instance is None and start and start <= timezone.now():
             raise serializers.ValidationError("start_time phải ở tương lai.")
         return attrs
@@ -182,13 +174,11 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def validate(self, attrs):
-        # user & vehicle phải khớp chủ sở hữu
         user = attrs.get("user") or getattr(self.instance, "user", None)
         vehicle = attrs.get("vehicle") or getattr(self.instance, "vehicle", None)
         if user and vehicle and vehicle.owner_id != user.id:
             raise serializers.ValidationError("Xe không thuộc về người dùng này.")
 
-        # kiểm tra gate type
         entry_gate = attrs.get("entry_gate") or getattr(self.instance, "entry_gate", None)
         exit_gate = attrs.get("exit_gate") or getattr(self.instance, "exit_gate", None)
         if entry_gate and entry_gate.type != "entry":
@@ -196,13 +186,11 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
         if exit_gate and exit_gate.type != "exit":
             raise serializers.ValidationError("exit_gate phải có type = 'exit'.")
 
-        # kiểm tra thời gian
         entry_time = attrs.get("entry_time") or getattr(self.instance, "entry_time", None)
         exit_time = attrs.get("exit_time") or getattr(self.instance, "exit_time", None)
         if entry_time and exit_time and exit_time < entry_time:
             raise serializers.ValidationError("exit_time không thể trước entry_time.")
 
-        # nếu status = closed ⇒ cần có exit_time & amount
         status_val = attrs.get("status") or getattr(self.instance, "status", None)
         amount = attrs.get("amount") or getattr(self.instance, "amount", None)
         if status_val == "closed":
@@ -211,7 +199,6 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
             if amount is None or amount < 0:
                 raise serializers.ValidationError("Đóng phiên cần amount hợp lệ (>=0).")
 
-        # format plate
         for key in ("entry_plate", "exit_plate"):
             v = attrs.get(key) or getattr(self.instance, key, None)
             if v and not PLATE_RE.fullmatch(v):
@@ -240,7 +227,6 @@ class PaymentSerializer(serializers.ModelSerializer):
         if not session:
             return attrs
 
-        # nếu mark PAID, session nên đã closed & amount khớp (nếu bạn muốn chặt chẽ)
         status_val = attrs.get("status") or getattr(self.instance, "status", None)
         amount = attrs.get("amount") or getattr(self.instance, "amount", None)
         if status_val == "paid":
@@ -275,7 +261,6 @@ class PlateReadingSerializer(serializers.ModelSerializer):
         return v
 
     def validate(self, attrs):
-        # nếu gắn vào session: chỉ cho phép gắn session đang mở
         sess = attrs.get("session") or getattr(self.instance, "session", None)
         if sess and sess.status != "open":
             raise serializers.ValidationError("Chỉ nhận PlateReading cho session đang 'open'.")
