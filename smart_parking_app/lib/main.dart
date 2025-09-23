@@ -11,7 +11,7 @@ import 'screens/tabs/history_tab.dart';
 import 'screens/tabs/info_tab.dart';
 import 'screens/receipt/reservation_receipt.dart';
 import 'admin/admin_shell.dart';
-
+import 'screens/payment_history_page.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/login', // vào login trước cho rõ ràng
@@ -51,6 +51,11 @@ final GoRouter appRouter = GoRouter(
           name: 'info',
           builder: (_, __) => const InfoTab(),
         ),
+        GoRoute(
+          path: '/payments',
+          name: 'payments',
+          builder: (_, __) => const PaymentHistoryPage(),
+        ),
 
         // Trang hóa đơn; nhận id bằng path, có thể kèm extra là ReservationModel để tránh gọi mạng lần 2
       ],
@@ -69,8 +74,10 @@ final GoRouter appRouter = GoRouter(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  Intl.defaultLocale = 'vi';              // hoặc 'vi_VN'
-  await initializeDateFormatting('vi');   // hoặc initializeDateFormatting('vi_VN')
+  Intl.defaultLocale = 'vi'; // hoặc 'vi_VN'
+  await initializeDateFormatting(
+    'vi',
+  ); // hoặc initializeDateFormatting('vi_VN')
   runApp(const MyApp());
 }
 

@@ -1,5 +1,5 @@
 import uuid
-from datetime import timezone
+from django.utils import timezone
 
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -159,14 +159,22 @@ class ParkingSession(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Khi chuyển từ OPEN → CLOSED thì tạo Payment
-        if old_status == 'OPEN' and self.status == 'CLOSED':
-            Payment.objects.create(
+        # ✅ Khi chuyển từ open → closed thì tạo Payment (chỉ 1 lần)
+        if old_status == 'open' and self.status == 'closed':
+            if self.amount is None:
+                # Không có amount thì không tạo payment
+                return
+            # Tránh tạo trùng (OneToOne: session)
+            Payment.objects.get_or_create(
                 session=self,
-                user=self.user,
-                amount=self.amount,
-                status='paid',  # hoặc pending tùy hệ thống bạn
-                paid_at=timezone.now(),
+                defaults={
+                    'provider': 'CASH',  # hoặc 'SYSTEM' / 'VNPAY' tuỳ flow
+                    'amount': self.amount,
+                    'currency': self.tariff.currency if self.tariff and self.tariff.currency else 'VND',
+                    'status': 'paid',  # nếu dùng cổng thanh toán, đặt 'pending' rồi đổi sau
+                    'paid_at': timezone.now(),
+                    # 'tx_ref': ''                      # tuỳ bạn, có thể để trống
+                }
             )
 
 # ===== Payment =====

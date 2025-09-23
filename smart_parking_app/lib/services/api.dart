@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
 import '../models/user_model.dart';
 import '../models/reservation_model.dart';
+import '../models/payment_model.dart';
 
 String getBaseUrl() {
   if (kIsWeb) return 'http://localhost:8000';
@@ -363,5 +364,34 @@ class ApiService {
       );
     }
     return null;
+  }
+
+  static Future<List<PaymentModel>> myPayments({String? status}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    if (token == null) throw Exception('Chưa đăng nhập');
+
+    final uri = Uri.parse(
+      '$baseUrl/parking/payments/${status != null ? '?status=$status' : ''}',
+    );
+
+    final res = await http.get(
+      uri,
+      headers: {
+        'Authorization': 'Token $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (res.statusCode != 200) {
+      throw Exception(
+        'Tải lịch sử thanh toán thất bại: ${res.statusCode} - ${res.body}',
+      );
+    }
+
+    final data = jsonDecode(res.body) as List;
+    return data
+        .map((e) => PaymentModel.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 }

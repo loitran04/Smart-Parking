@@ -5,7 +5,7 @@ import threading
 class AppConfig(AppConfig):
     name = "app"
     def ready(self):
-        from .lpr import _load_models
+        from .lpr_v8 import _load_models
         # Tránh chạy 2 lần nếu dùng autoreload:
         import os
         if os.environ.get("RUN_MAIN") == "true":

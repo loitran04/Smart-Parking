@@ -22,10 +22,10 @@ from .models import Gate, QRCode, Vehicle, ParkingSession, Tariff, Reservation, 
 from .serializers import (
     GateSerializer, QRCodeSerializer, VehicleSerializer,
     ParkingSessionSerializer, UserSerializer,
-    ReservationSerializer, TariffSerializer
+    ReservationSerializer, TariffSerializer, PaymentSerializer
 )
 from rest_framework.permissions import IsAdminUser as IsAdmin
-from .lpr import recognize_plate_from_bytes
+from .lpr_v8 import recognize_plate_from_bytes
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
 
@@ -492,3 +492,19 @@ class GateViewSet(viewsets.ModelViewSet):
     queryset = Gate.objects.all().order_by('name')
     serializer_class = GateSerializer
     permission_classes = [IsAdmin]
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_payments(request):
+    """
+    Lịch sử thanh toán của chính người dùng.
+    Hỗ trợ lọc ?status=pending|paid|failed|refunded (tuỳ chọn).
+    """
+    qs = Payment.objects.filter(session__user=request.user) \
+                        .select_related('session') \
+                        .order_by('-paid_at', '-session__exit_time', '-session__entry_time')
+
+    status_param = request.query_params.get('status')
+    if status_param:
+        qs = qs.filter(status=status_param)
+
+    return Response(PaymentSerializer(qs, many=True).data)
